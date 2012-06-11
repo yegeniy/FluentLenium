@@ -140,7 +140,7 @@ public abstract class Fluent implements SearchActions {
      *
      * @param page
      */
-    public static FluentPage goTo(FluentPage page) {
+    public FluentPage goTo(FluentPage page) {
         if (page == null) {
             throw new IllegalArgumentException("Page is mandatory");
         }

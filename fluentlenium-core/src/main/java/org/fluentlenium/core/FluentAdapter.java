@@ -1,5 +1,22 @@
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *         http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License
+ */
 package org.fluentlenium.core;
 
+import javassist.util.proxy.MethodFilter;
+import javassist.util.proxy.MethodHandler;
+import javassist.util.proxy.ProxyFactory;
+import javassist.util.proxy.ProxyObject;
 import org.fluentlenium.core.annotation.AjaxElement;
 import org.fluentlenium.core.annotation.Page;
 import org.fluentlenium.core.domain.FluentWebElement;
@@ -65,15 +82,19 @@ public class FluentAdapter extends Fluent {
             //init fields with default proxies
             Field[] fields = cls.getDeclaredFields();
             for (Field fieldFromPage : fields) {
-                if (!FluentWebElement.class.isAssignableFrom(fieldFromPage.getType())) {
+                if (!FluentWebElement.class.isAssignableFrom(fieldFromPage.getType()) && !FluentPage.class.isAssignableFrom(fieldFromPage.getType())) {
                     continue;
                 }
-                fieldFromPage.setAccessible(true);
-                AjaxElement elem = fieldFromPage.getAnnotation(AjaxElement.class);
-                if (elem == null) {
-                    proxyElement(new DefaultElementLocatorFactory(getDriver()), page, fieldFromPage);
-                } else {
-                    proxyElement(new AjaxElementLocatorFactory(getDriver(), elem.timeOutInSeconds()), page, fieldFromPage);
+                if (FluentWebElement.class.isAssignableFrom(fieldFromPage.getType())) {
+                    fieldFromPage.setAccessible(true);
+                    AjaxElement elem = fieldFromPage.getAnnotation(AjaxElement.class);
+                    if (elem == null) {
+                        proxyElement(new DefaultElementLocatorFactory(getDriver()), page, fieldFromPage);
+                    } else {
+                        proxyElement(new AjaxElementLocatorFactory(getDriver(), elem.timeOutInSeconds()), page, fieldFromPage);
+                    }
+                }else{
+                    proxyPage(getDriver(), page, fieldFromPage);
                 }
             }
         } catch (ClassNotFoundException e) {
@@ -88,6 +109,38 @@ public class FluentAdapter extends Fluent {
             throw new ConstructionException("Cannot invoke method setDriver on " + (cls != null ? cls.getName() : " null"), e);
         }
         return page;
+    }
+
+    private <T extends FluentPage> void proxyPage(WebDriver driver, T page,  Field field) {
+         ProxyFactory f = new ProxyFactory();
+         f.setSuperclass(field.getType());
+         f.setFilter(new MethodFilter() {
+             public boolean isHandled(Method m) {
+                 // ignore finalize()
+                 return !m.getName().equals("finalize");
+             }
+
+
+         });
+         Class c = f.createClass();
+         MethodHandler mi = new FluentMethodHandler(page,field,driver);
+
+        field.setAccessible(true);
+
+        try {
+            T o =(T) c.newInstance();
+            ((ProxyObject)o).setHandler(mi);
+            field.set(page, o);
+        } catch (IllegalAccessException e) {
+            throw new ConstructionException("IllegalAccessException on class " + (c != null ? c.getName() : " null"), e);
+        } catch (InstantiationException e) {
+            throw new ConstructionException("Unable to instantiate " + (c != null ? c.getName() : " null"), e);
+        }
+
+
+
+
+
     }
 
     private static void proxyElement(ElementLocatorFactory factory, Object page, Field field) {
